@@ -5,6 +5,24 @@ type payMap struct {
 	info *APIInfo
 }
 
+//appid mch_id nonce_str
+func (this *payMap) BasicCheckSet() {
+	m := this.m
+	if m["appid"] == "" {
+		m["appid"] = this.info.AppID
+	}
+	if m["mch_id"] == "" {
+		m["mch_id"] = this.info.MchID
+	}
+	if m["nonce_str"] == "" {
+		m["nonce_str"] = getNonceStr()
+	}
+}
+
+func (this *payMap) Sign() {
+	this.m["sign"] = Sign(this.m, this.info.ApiKey)
+}
+
 func (this *payMap) SetAppID(appID string) {
 	this.m["appid"] = appID
 }

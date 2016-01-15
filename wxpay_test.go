@@ -27,7 +27,8 @@ func TestSign(b *testing.T) {
 }
 
 func TestPostUniform(b *testing.T) {
-	api := NewAPI("wx20fa041258046bbf", "1299702501", "1v4h5g4s8u1x25tf025f025e10geagf2", "http://www.baidu.com")
+	api := NewAPI("wx20fa044851046bbf", "1299730801", "1v4h5g4s8u1x25tf451d025e10geagf2", "http://www.baidu.com")
+	//	api := NewAPI("wx20fa041258046bbf", "1299702501", "1v4h5g4s8u1x25tf025f025e10geagf2", "http://www.baidu.com")
 	order := api.NewMap()
 	order.SetBody("body")
 	order.SetOutTradeNo("test2")

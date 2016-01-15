@@ -21,6 +21,12 @@ const (
 	TRADE_TYPE_JSAPI  = "JSAPI"
 
 	URL_UNIFIEDORDER = "https://api.mch.weixin.qq.com/pay/unifiedorder"
+	URL_ORDERQUERY   = "https://api.mch.weixin.qq.com/pay/orderquery"
+
+	RETURN_CODE_SUCCESS = "SUCCESS"
+	RETURN_CODE_FAIL    = "FAIL"
+	RESULT_CODE_SUCCESS = "SUCCESS"
+	RESULT_CODE_FAIL    = "FAIL"
 )
 
 func NewAPI(appID, mchID, apiKey, notifyURL string) *APIInfo {
@@ -46,21 +52,30 @@ func (this *APIInfo) NewMap() *payMap {
 	return pm
 }
 
+//订单查询
+func OrderQuery(pm *payMap) (map[string]string, error) {
+	pm.BasicCheckSet()
+	if pm.m["transaction_id"] == "" && pm.m["out_trade_no"] == "" {
+		panic("缺少查询订单选填参数transaction_id或者out_trade_no！！！")
+	}
+	pm.Sign()
+	post := httplib.Post(URL_ORDERQUERY)
+	post.Body(pm.ToXML())
+	xmlStr, err := post.String()
+	if err != nil {
+		return nil, err
+	}
+	outXMLMap := XMLToMap(xmlStr, true)
+	return outXMLMap, nil
+}
+
 //统一下单
 func UnifiedOrder(pm *payMap) (map[string]string, error) {
 	m := pm.m
 	rMap := make(map[string]string)
-	if m["appid"] == "" {
-		m["appid"] = pm.info.AppID
-	}
-	if m["mch_id"] == "" {
-		m["mch_id"] = pm.info.MchID
-	}
+	pm.BasicCheckSet()
 	if m["notify_url"] == "" {
 		m["notify_url"] = pm.info.NotifyURL
-	}
-	if m["nonce_str"] == "" {
-		m["nonce_str"] = getNonceStr()
 	}
 	if m["body"] == "" {
 		panic("缺少统一支付接口必填参数body！")
