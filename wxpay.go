@@ -3,8 +3,11 @@ package wxpay
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/xml"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -22,6 +25,8 @@ const (
 
 	URL_UNIFIEDORDER = "https://api.mch.weixin.qq.com/pay/unifiedorder"
 	URL_ORDERQUERY   = "https://api.mch.weixin.qq.com/pay/orderquery"
+	URL_REFUND       = "https://api.mch.weixin.qq.com/secapi/pay/refund"
+	URL_REFUNDQUERY  = "https://api.mch.weixin.qq.com/pay/refundquery"
 
 	RETURN_CODE_SUCCESS = "SUCCESS"
 	RETURN_CODE_FAIL    = "FAIL"
@@ -67,6 +72,101 @@ func OrderQuery(pm *payMap) (map[string]string, error) {
 	}
 	outXMLMap := XMLToMap(xmlStr, true)
 	return outXMLMap, nil
+}
+
+//退款
+func RefundOrder(pm *payMap) (map[string]string, error) {
+	m := pm.m
+	pm.BasicCheckSet()
+	if m["transaction_id"] == "" && m["out_trade_no"] == "" {
+		panic("微信订单号和商户订单号二者选其一填写！")
+	}
+	if m["out_refund_no"] == "" {
+		panic("商户退款单号不能为空！")
+	}
+	if m["total_fee"] == "" {
+		panic("总金额不能为空！")
+	}
+	if m["refund_fee"] == "" {
+		panic("退款金额不能为空！")
+	}
+	if m["op_user_id"] == "" {
+		//默认填写商户号
+		m["op_user_id"] = pm.info.MchID
+	}
+	if m["sign"] == "" {
+		m["sign"] = Sign(m, pm.info.ApiKey)
+	}
+
+	outXMLMap := make(map[string]string)
+	post := httplib.Post(URL_REFUND)
+	post.SetTLSClientConfig(MustGetTlsConfiguration())
+	post.Body(pm.ToXML())
+	xmlStr, err := post.String()
+	if err != nil {
+		return outXMLMap, err
+	}
+	outXMLMap = XMLToMap(xmlStr, true)
+	if Sign(outXMLMap, pm.info.ApiKey) != outXMLMap["sign"] {
+		panic("server return xml sign error")
+	}
+	return outXMLMap, nil
+}
+
+func MustLoadCertificates() (tls.Certificate, *x509.CertPool) {
+
+	privateKeyFile := "conf/wechat_cert/apiclient_key.pem"
+	certificateFile := "conf/wechat_cert/apiclient_cert.pem"
+	caFile := "conf/wechat_cert/rootca.pem"
+
+	mycert, err := tls.LoadX509KeyPair(certificateFile, privateKeyFile)
+	if err != nil {
+		panic(err)
+	}
+
+	pem, err := ioutil.ReadFile(caFile)
+	if err != nil {
+		panic(err)
+	}
+
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(pem) {
+		panic("Failed appending certs")
+	}
+
+	return mycert, certPool
+
+}
+
+func MustGetTlsConfiguration() *tls.Config {
+	config := &tls.Config{}
+	mycert, certPool := MustLoadCertificates()
+	config.Certificates = make([]tls.Certificate, 1)
+	config.Certificates[0] = mycert
+
+	config.RootCAs = certPool
+	config.ClientCAs = certPool
+
+	config.ClientAuth = tls.RequireAndVerifyClientCert
+
+	//Optional stuff
+
+	//Use only modern ciphers
+	config.CipherSuites = []uint16{tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+		tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+
+	//Use only TLS v1.2
+	config.MinVersion = tls.VersionTLS12
+
+	//Don't allow session resumption
+	config.SessionTicketsDisabled = true
+	return config
 }
 
 //统一下单
@@ -124,13 +224,40 @@ func UnifiedOrder(pm *payMap) (map[string]string, error) {
 	return rMap, nil
 }
 
+//退款查询
+func RefundQuery(pm *payMap) (map[string]string, error) {
+	m := pm.m
+	pm.BasicCheckSet()
+	if m["transaction_id"] == "" && m["out_trade_no"] == "" && m["out_refund_no"] == "" && m["refund_id"] == "" {
+		panic("微信订单号、商户订单号、商户退款单号、微信退款单号四选一！")
+	}
+	if m["sign"] == "" {
+		m["sign"] = Sign(m, pm.info.ApiKey)
+	}
+	outXMLMap := make(map[string]string)
+	post := httplib.Post(URL_REFUNDQUERY)
+	post.Body(pm.ToXML())
+	xmlStr, err := post.String()
+	if err != nil {
+		return outXMLMap, err
+	}
+	outXMLMap = XMLToMap(xmlStr, true)
+	if Sign(outXMLMap, pm.info.ApiKey) != outXMLMap["sign"] {
+		panic("server return xml sign error")
+	}
+	return outXMLMap, nil
+}
+
 //签名函数，待优化效率。
 func Sign(paras map[string]string, apiKey string) string {
 	ks := make([]string, 0, len(paras))
 	md5New := md5.New()
 	bf := bytes.NewBuffer(make([]byte, 0, 200))
-	for k := range paras {
+	for k, v := range paras {
 		if k == "sign" {
+			continue
+		}
+		if strings.Trim(v, " ") == "" {
 			continue
 		}
 		ks = append(ks, k)
